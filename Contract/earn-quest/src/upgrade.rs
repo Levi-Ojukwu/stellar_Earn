@@ -12,6 +12,12 @@ pub fn migrate(env: &Env) -> Result<(), Error> {
     if current_version == 0 && storage::is_initialized(env) {
         current_version = 1;
         storage::set_data_version(env, 1);
+        
+        // Update version in config for consistency
+        if let Some(mut config) = storage::get_config(env) {
+            config.version = 1;
+            storage::set_config(env, &config);
+        }
     }
 
     if current_version >= CONTRACT_VERSION {

@@ -98,7 +98,6 @@ fn test_upgrade_contract_entrypoint_authorization() {
         EarnQuestContractClient::new(&env, &env.register_contract(None, EarnQuestContract));
 
     let admin = Address::generate(&env);
-    let dummy_hash = BytesN::from_array(&env, &[0u8; 32]);
 
     // Initialize
     client.initialize(&admin);
