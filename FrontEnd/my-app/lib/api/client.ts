@@ -110,9 +110,38 @@ function processQueue(error: unknown, token: string | null = null): void {
 // Error transformation
 // ---------------------------------------------------------------------------
 
-function transformAxiosError(error: AxiosError<ApiErrorResponse>): AppError {
+function isAxiosError(error: unknown): error is AxiosError {
+  return error !== null && typeof error === 'object' && 'isAxiosError' in error;
+}
+
+function hasApiErrorResponse(error: AxiosError): error is AxiosError<ApiErrorResponse> {
+  return error.response?.data !== undefined && 
+         typeof error.response.data === 'object' &&
+         ('statusCode' in error.response.data || 'message' in error.response.data);
+}
+
+function transformAxiosError(error: unknown): AppError {
+  if (!isAxiosError(error)) {
+    // Non-Axios error
+    let errorMessage = 'An unexpected error occurred';
+    
+    if (error && typeof error === 'object') {
+      if ('message' in error) {
+        errorMessage = String((error as { message: unknown }).message);
+      }
+    } else if (typeof error === 'string') {
+      errorMessage = error;
+    }
+    
+    return createAppError(
+      errorMessage,
+      ERROR_CODES.SERVER_ERROR,
+      0,
+    );
+  }
+
   const status = error.response?.status;
-  const data = error.response?.data;
+  const data = hasApiErrorResponse(error) ? error.response.data : undefined;
 
   const message = Array.isArray(data?.message)
     ? data.message.join('; ')
@@ -178,7 +207,7 @@ apiClient.interceptors.request.use(
     }
     return config;
   },
-  (error: AxiosError<ApiErrorResponse>) => Promise.reject(transformAxiosError(error)),
+  (error: unknown) => Promise.reject(transformAxiosError(error)),
 );
 
 // ---------------------------------------------------------------------------
@@ -186,8 +215,12 @@ apiClient.interceptors.request.use(
 // ---------------------------------------------------------------------------
 
 apiClient.interceptors.response.use(
-  (response) => response,
-  async (error: AxiosError<ApiErrorResponse>) => {
+  (response: any) => response,
+  async (error: unknown) => {
+    if (!isAxiosError(error)) {
+      return Promise.reject(transformAxiosError(error));
+    }
+
     const originalRequest = error.config as InternalAxiosRequestConfig & {
       _retry?: boolean;
     };
@@ -245,9 +278,9 @@ apiClient.interceptors.response.use(
 // ---------------------------------------------------------------------------
 
 function isRetryableError(error: unknown): boolean {
-  const axiosErr = error as AxiosError;
-  if (!axiosErr.response) return true; // network error
-  const status = axiosErr.response.status;
+  if (!isAxiosError(error)) return false; // non-Axios errors are not retryable
+  if (!error.response) return true; // network error
+  const status = error.response.status;
   return status >= 500 && status !== 501;
 }
 
@@ -358,4 +391,4 @@ export async function del<T = void>(
   return data;
 }
 
-export { DEFAULT_TIMEOUT_MS, MAX_RETRIES };
+export { transformAxiosError, DEFAULT_TIMEOUT_MS, MAX_RETRIES };
