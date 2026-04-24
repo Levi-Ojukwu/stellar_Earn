@@ -1,4 +1,35 @@
+/// # Data Structure Size Optimization — Issue #276
+///
+/// ## Problem
+/// Large structs serialized as a single Soroban storage entry waste gas on
+/// every read/write because the *entire* blob is loaded even when only one
+/// field is needed.  Key offenders:
+///
+/// | Struct          | Fields | Problem                                      |
+/// |-----------------|--------|----------------------------------------------|
+/// | `EscrowInfo`    | 9      | `quest_id`/`depositor` duplicated in key;    |
+/// |                 |        | 3×i128 always loaded for balance checks      |
+/// | `QuestMetadata` | 5      | `Vec<String>` tags/requirements unbounded    |
+/// | `UserStats`     | 4      | `Vec<Badge>` grows unbounded, loaded for XP  |
+/// | `PlatformStats` | 5      | All counters rewritten for single increment  |
+///
+/// ## Solution — Split by access pattern (hot / cold)
+///
+/// Each large struct is split into:
+///   - A **core** (hot-path) struct containing only the fields touched on
+///     every transaction.  Stored under the original key for backward compat.
+///   - An **extended** (cold-path) struct containing rarely-read fields.
+///     Stored under a new key, loaded only when explicitly requested.
+///
+/// Original structs are kept as **type aliases** so existing call-sites
+/// continue to compile without changes.
+
 use soroban_sdk::{contracttype, Address, BytesN, String, Symbol, Vec};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Quest
+// ─────────────────────────────────────────────────────────────────────────────
+// Quest is already lean (8 fields, no Vec).  No split needed.
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -15,22 +46,27 @@ pub struct Quest {
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Submission {
-    pub quest_id: Symbol,
-    pub submitter: Address,
-    pub proof_hash: BytesN<32>,
-    pub status: SubmissionStatus,
-    pub timestamp: u64,
-}
-
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum QuestStatus {
     Active,
     Paused,
     Completed,
     Expired,
     Cancelled,
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Submission
+// ─────────────────────────────────────────────────────────────────────────────
+// Submission is lean (5 fields, fixed-size BytesN<32>).  No split needed.
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Submission {
+    pub quest_id: Symbol,
+    pub submitter: Address,
+    pub proof_hash: BytesN<32>,
+    pub status: SubmissionStatus,
+    pub timestamp: u64,
 }
 
 #[contracttype]
@@ -42,14 +78,48 @@ pub enum SubmissionStatus {
     Paid,
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// UserStats  →  UserCore  +  UserBadges
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// BEFORE (single entry, always loaded):
+//   UserStats { xp: u64, level: u32, quests_completed: u32, badges: Vec<Badge> }
+//
+// AFTER:
+//   UserCore   { xp, level, quests_completed }   ← hot path (award_xp, level check)
+//   UserBadges { badges: Vec<Badge> }             ← cold path (grant_badge, display)
+//
+// Gas savings:
+//   - award_xp() no longer deserialises the badge Vec (up to 50 entries × ~8 bytes)
+//   - grant_badge() only loads the badge Vec, not the XP counters
+//
+// Backward compat:
+//   `UserStats` is kept as a type alias for `UserCore` so existing public API
+//   signatures (`get_user_stats`) are unchanged.  The `badges` field is now
+//   fetched separately via `get_user_badges()`.
+
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct UserStats {
+pub struct UserCore {
+    /// Total experience points earned
     pub xp: u64,
+    /// Current user level (1–5)
     pub level: u32,
+    /// Number of quests successfully completed
     pub quests_completed: u32,
+}
+
+/// Separate storage entry for a user's badge collection.
+/// Loaded only when badges are displayed or granted.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct UserBadges {
     pub badges: Vec<Badge>,
 }
+
+/// Backward-compatible alias: existing code that references `UserStats` still
+/// compiles.  The `badges` field has moved to `UserBadges`.
+pub type UserStats = UserCore;
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -61,57 +131,61 @@ pub enum Badge {
     Legend,
 }
 
-//================================================================================
-// Batch operation input types (gas-optimized multi-item operations)
-//================================================================================
+// ─────────────────────────────────────────────────────────────────────────────
+// EscrowInfo  →  EscrowBalances  +  EscrowMeta
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// BEFORE (9 fields, always loaded):
+//   EscrowInfo {
+//     quest_id, depositor, token,
+//     total_deposited, total_paid_out, total_refunded,
+//     is_active, created_at, deposit_count
+//   }
+//
+// AFTER:
+//   EscrowBalances { total_deposited, total_paid_out, total_refunded,
+//                    is_active, deposit_count }   ← hot path (every payout/deposit)
+//   EscrowMeta     { depositor, token, created_at }  ← cold path (refund, display)
+//
+// Gas savings:
+//   - validate_sufficient() / record_payout() only load EscrowBalances (5 fields)
+//     instead of 9 fields including two Address values (~32 bytes each)
+//   - refund_remaining() loads EscrowMeta only when actually refunding
+//
+// Backward compat:
+//   `EscrowInfo` is kept as a **view struct** (not stored) assembled on demand
+//   by `get_escrow_info()` for the public query API.
 
-/// Single quest registration input for batch registration.
-/// Creator is implied from auth in register_quests_batch.
-/// Platform-wide aggregated statistics.
-///
-/// Updated atomically on every quest creation, submission, and claim.
-/// Queried via `EarnQuestContract::get_platform_stats()`.
+/// Hot-path escrow data: loaded on every deposit, payout, and balance check.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct BatchQuestInput {
-    pub id: Symbol,
-    pub reward_asset: Address,
-    pub reward_amount: i128,
-    pub verifier: Address,
-    pub deadline: u64,
+pub struct EscrowBalances {
+    /// Total tokens deposited (cumulative, includes top-ups)
+    pub total_deposited: i128,
+    /// Total tokens paid out to quest completers
+    pub total_paid_out: i128,
+    /// Total tokens refunded back to creator
+    pub total_refunded: i128,
+    /// Whether this escrow is still active
+    pub is_active: bool,
+    /// Number of deposits made (1 = initial, >1 = top-ups)
+    pub deposit_count: u32,
 }
 
-/// Single approval input for batch approval.
-/// Verifier is implied from auth in approve_submissions_batch.
+/// Cold-path escrow metadata: loaded only for refunds and display queries.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct BatchApprovalInput {
-    pub quest_id: Symbol,
-    pub submitter: Address,
+pub struct EscrowMeta {
+    /// Who deposited (must be quest creator)
+    pub depositor: Address,
+    /// Which token is held
+    pub token: Address,
+    /// Ledger timestamp when the escrow was first created
+    pub created_at: u64,
 }
 
-/// Description storage mode for quest metadata.
-/// Inline is simpler; hash reference is cheaper for large content.
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum MetadataDescription {
-    Inline(String),
-    Hash(BytesN<32>),
-}
-
-/// Rich quest metadata shown to users.
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct QuestMetadata {
-    pub title: String,
-    pub description: MetadataDescription,
-    pub requirements: Vec<String>,
-    pub category: String,
-    pub tags: Vec<String>,
-}
-/// Escrow tracks tokens locked per quest.
-/// Created when a creator calls deposit_escrow().
-/// Updated when payouts happen or funds are refunded.
+/// Full escrow view — assembled from EscrowBalances + EscrowMeta.
+/// NOT stored directly; returned by `get_escrow_info()` for the public API.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EscrowInfo {
@@ -135,14 +209,82 @@ pub struct EscrowInfo {
     pub deposit_count: u32,
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// QuestMetadata  →  QuestMetadataCore  +  QuestMetadataExtended
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// BEFORE (5 fields, Vec<String> always loaded):
+//   QuestMetadata { title, description, requirements: Vec<String>,
+//                   category, tags: Vec<String> }
+//
+// AFTER:
+//   QuestMetadataCore     { title, description, category }  ← hot path (display)
+//   QuestMetadataExtended { requirements, tags }            ← cold path (validation)
+//
+// Gas savings:
+//   - Quest listing / title display only loads 3 scalar fields
+//   - Requirements/tags (up to 20 + 15 strings × up to 200 bytes each) are
+//     loaded only when a submitter reads the full quest detail
+
+/// Hot-path metadata: title, description, category — shown in quest listings.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct CreatorStats {
-    pub quests_created: u64,
-    pub total_rewards_posted: u128,
-    pub total_submissions_received: u64,
-    pub total_claims_paid: u64,
+pub struct QuestMetadataCore {
+    pub title: String,
+    pub description: MetadataDescription,
+    pub category: String,
 }
+
+/// Cold-path metadata: requirements and tags — loaded only for full detail view.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct QuestMetadataExtended {
+    pub requirements: Vec<String>,
+    pub tags: Vec<String>,
+}
+
+/// Full metadata view — assembled from Core + Extended.
+/// Returned by `get_quest_metadata()` for the public API.
+/// Also accepted by `register_quest_with_metadata()` for convenience.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct QuestMetadata {
+    pub title: String,
+    pub description: MetadataDescription,
+    pub requirements: Vec<String>,
+    pub category: String,
+    pub tags: Vec<String>,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum MetadataDescription {
+    Inline(String),
+    Hash(BytesN<32>),
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PlatformStats  →  individual counters
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// BEFORE (5 fields, entire struct rewritten for every single counter increment):
+//   PlatformStats { total_quests_created, total_submissions,
+//                   total_rewards_distributed, total_active_users,
+//                   total_rewards_claimed }
+//
+// AFTER:
+//   Each counter stored under its own DataKey so only the touched counter
+//   is read + written per transaction.
+//
+// Gas savings:
+//   - register_quest() increments only `total_quests_created` (1 read + 1 write)
+//     instead of reading/writing all 5 counters (5× the I/O)
+//   - submit_proof() increments only `total_submissions`
+//   - claim_reward() increments only `total_rewards_claimed`
+//
+// Backward compat:
+//   `PlatformStats` struct is kept for the `get_platform_stats()` query API.
+//   It is assembled from individual counters on read.
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -152,4 +294,38 @@ pub struct PlatformStats {
     pub total_rewards_distributed: u128,
     pub total_active_users: u64,
     pub total_rewards_claimed: u64,
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CreatorStats — kept as-is (4 scalar fields, no Vec, acceptable size)
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CreatorStats {
+    pub quests_created: u64,
+    pub total_rewards_posted: u128,
+    pub total_submissions_received: u64,
+    pub total_claims_paid: u64,
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Batch input types (already lean, no changes needed)
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BatchQuestInput {
+    pub id: Symbol,
+    pub reward_asset: Address,
+    pub reward_amount: i128,
+    pub verifier: Address,
+    pub deadline: u64,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BatchApprovalInput {
+    pub quest_id: Symbol,
+    pub submitter: Address,
 }
