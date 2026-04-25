@@ -44,6 +44,25 @@ pub enum SubmissionStatus {
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub enum DisputeStatus {
+    Pending,
+    UnderReview,
+    Resolved,
+    Withdrawn,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Dispute {
+    pub quest_id: Symbol,
+    pub initiator: Address,
+    pub arbitrator: Address,
+    pub status: DisputeStatus,
+    pub filed_at: u64,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct UserStats {
     pub xp: u64,
     pub level: u32,

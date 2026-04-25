@@ -2,6 +2,7 @@
 
 mod admin;
 pub mod errors;
+mod dispute;
 mod escrow;
 mod events;
 mod init;
@@ -16,7 +17,7 @@ pub mod types;
 pub mod validation;
 
 use crate::errors::Error;
-use crate::types::{Badge, BatchApprovalInput, BatchQuestInput, CreatorStats, EscrowInfo, PlatformStats, Quest, QuestMetadata, QuestStatus, UserStats, Submission, OracleConfig, PriceFeedRequest, AggregatedPrice, PriceData};
+use crate::types::{Badge, BatchApprovalInput, BatchQuestInput, CreatorStats, Dispute, EscrowInfo, PlatformStats, Quest, QuestMetadata, QuestStatus, UserStats, Submission};
 use soroban_sdk::{contract, contractimpl, Address, BytesN, Env, String, Symbol, Vec};
 
 #[contract]
@@ -187,22 +188,27 @@ impl EarnQuestContract {
         security::require_not_paused(&env)?;
         security::nonreentrant_enter(&env)?;
         submitter.require_auth();
-        submission::validate_claim(&env, &quest_id, &submitter)?;
 
+        // Single read of quest and submission for all subsequent operations
         let quest = storage::get_quest(&env, &quest_id)?;
+        let submission = storage::get_submission(&env, &quest_id, &submitter)?;
+
+        // Validate using pre-read data
+        submission::validate_claim_data(&quest, &submission)?;
 
         // CEI: flip the submission to Paid and increment claims BEFORE the
         // external token transfer. If a malicious token re-enters during
         // the transfer the AlreadyClaimed check in validate_claim will
         // reject the second attempt even before the reentrancy guard kicks
         // in, giving us defence in depth.
-        storage::update_submission_status(
-            &env,
-            &quest_id,
-            &submitter,
-            types::SubmissionStatus::Paid,
-        )?;
-        storage::increment_quest_claims(&env, &quest_id)?;
+        let mut submission = submission;
+        submission.status = types::SubmissionStatus::Paid;
+        storage::set_submission(&env, &quest_id, &submitter, &submission);
+
+        // Increment claims: directly update quest to avoid extra read
+        let mut quest = quest;
+        quest.total_claims += 1;
+        storage::set_quest(&env, &quest_id, &quest);
 
         payout::transfer_reward_from_escrow(
             &env,
@@ -240,6 +246,51 @@ impl EarnQuestContract {
         let stats = storage::get_user_stats_or_default(&env, &user);
         validation::validate_badge_count(stats.badges.len())?;
         reputation::grant_badge(&env, &admin, &user, badge)
+    }
+
+    // ── Dispute Resolution ──
+
+    /// Open a dispute for a rejected submission.
+    ///
+    /// Only the submitter can open a dispute. They must have a submission
+    /// on this quest that was previously rejected. The dispute is assigned
+    /// to an arbitrator (could be the verifier or a designated third party).
+    ///
+    /// Returns the created Dispute record.
+    pub fn open_dispute(
+        env: Env,
+        quest_id: Symbol,
+        initiator: Address,
+        arbitrator: Address,
+    ) -> Result<Dispute, Error> {
+        security::require_not_paused(&env)?;
+        dispute::open_dispute(&env, quest_id, initiator, arbitrator)
+    }
+
+    /// Resolve an open dispute. Only the assigned arbitrator can resolve.
+    pub fn resolve_dispute(
+        env: Env,
+        quest_id: Symbol,
+        initiator: Address,
+        arbitrator: Address,
+    ) -> Result<(), Error> {
+        security::require_not_paused(&env)?;
+        dispute::resolve_dispute(&env, quest_id, initiator, arbitrator)
+    }
+
+    /// Withdraw a pending dispute (only by initiator).
+    pub fn withdraw_dispute(
+        env: Env,
+        quest_id: Symbol,
+        initiator: Address,
+    ) -> Result<(), Error> {
+        security::require_not_paused(&env)?;
+        dispute::withdraw_dispute(&env, quest_id, initiator)
+    }
+
+    /// Get dispute details.
+    pub fn get_dispute(env: Env, quest_id: Symbol, initiator: Address) -> Result<Dispute, Error> {
+        dispute::get_dispute(&env, quest_id, initiator)
     }
 
     pub fn emergency_pause(env: Env, caller: Address) -> Result<(), Error> {
