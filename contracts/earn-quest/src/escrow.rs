@@ -41,17 +41,14 @@ pub fn deposit(
         return Err(Error::TokenMismatch);
     }
 
-    // Transfer tokens: creator → contract
-    let token_client = token::Client::new(env, token_address);
-    match token_client.try_transfer(depositor, &env.current_contract_address(), &amount) {
-        Ok(Ok(_)) => {}
-        _ => return Err(Error::TransferFailed),
-    }
-
-    // Load or create hot-path balances
-    let mut balances = if storage::has_escrow(env, quest_id) {
-        let b = storage::get_escrow_balances(env, quest_id)?;
-        if !b.is_active {
+    // CEI ordering: load and update the escrow record FIRST, then perform
+    // the external token transfer last. If the transfer fails the entire
+    // transaction reverts and the storage write is rolled back, but a
+    // re-entrant call during the transfer will see a fully-updated record
+    // and cannot inflate the deposit total a second time.
+    let mut escrow = if storage::has_escrow(env, quest_id) {
+        let existing = storage::get_escrow(env, quest_id)?;
+        if !existing.is_active {
             return Err(Error::EscrowInactive);
         }
         b
@@ -75,14 +72,22 @@ pub fn deposit(
         }
     };
 
-    balances.total_deposited += amount;
-    balances.deposit_count += 1;
-    storage::set_escrow_balances(env, quest_id, &balances);
+    escrow.total_deposited += amount;
+    escrow.deposit_count += 1;
+    storage::set_escrow(env, quest_id, &escrow);
 
     let available = balances.total_deposited - balances.total_paid_out - balances.total_refunded;
     events::escrow_deposited(env, quest_id.clone(), depositor.clone(), amount, available);
 
-    Ok(())
+    // Transfer tokens: creator → contract (external call, kept last)
+    let token_client = token::Client::new(env, token_address);
+    let transfer_result =
+        token_client.try_transfer(depositor, &env.current_contract_address(), &amount);
+
+    match transfer_result {
+        Ok(Ok(_)) => Ok(()),
+        _ => Err(Error::TransferFailed),
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -143,22 +148,32 @@ fn refund_remaining(env: &Env, quest_id: &Symbol) -> Result<i128, Error> {
     let mut b = storage::get_escrow_balances(env, quest_id)?;
     let meta = storage::get_escrow_meta(env, quest_id)?;
 
-    let available = b.total_deposited - b.total_paid_out - b.total_refunded;
+    let available = escrow.total_deposited - escrow.total_paid_out - escrow.total_refunded;
+    let depositor = escrow.depositor.clone();
+    let token = escrow.token.clone();
+
+    // CEI ordering: mark the escrow refunded and inactive FIRST so a
+    // re-entrant call during the transfer below cannot trigger a second
+    // refund (it would see is_active=false). On transfer failure the
+    // transaction reverts and the storage write is rolled back atomically.
+    escrow.total_refunded += available;
+    escrow.is_active = false;
+    storage::set_escrow(env, quest_id, &escrow);
 
     if available > 0 {
-        let token_client = token::Client::new(env, &meta.token);
-        match token_client.try_transfer(&env.current_contract_address(), &meta.depositor, &available) {
+        let token_client = token::Client::new(env, &token);
+        let transfer_result = token_client.try_transfer(
+            &env.current_contract_address(),
+            &depositor,
+            &available,
+        );
+
+        match transfer_result {
             Ok(Ok(_)) => {}
             _ => return Err(Error::TransferFailed),
         }
-    }
 
-    b.total_refunded += available;
-    b.is_active = false;
-    storage::set_escrow_balances(env, quest_id, &b);
-
-    if available > 0 {
-        events::escrow_refunded(env, quest_id.clone(), meta.depositor.clone(), available);
+        events::escrow_refunded(env, quest_id.clone(), depositor, available);
     }
 
     Ok(available)
