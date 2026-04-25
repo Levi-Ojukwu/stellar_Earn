@@ -28,6 +28,7 @@ import { LoggerMiddleware } from './common/middleware/logger.middleware';
 import { CacheModule } from './modules/cache/cache.module';
 import { HealthModule } from './modules/health/health.module';
 import { throttlerConfig } from './config/throttler.config';
+import { PerUserRateLimitConfigService } from './config/per-user-rate-limit.config';
 import { AppThrottlerGuard } from './common/guards/throttler.guard';
 import { EventsModule } from './events/events.module';
 
@@ -77,6 +78,7 @@ import { EventsModule } from './events/events.module';
   controllers: [AppController],
   providers: [
     AppService,
+    PerUserRateLimitConfigService,
     {
       provide: APP_GUARD,
       useClass: AppThrottlerGuard,
