@@ -27,41 +27,11 @@ pub const MAX_BATCH_QUEST_REGISTRATION: u32 = 50;
 /// Maximum number of submissions that can be approved in a single batch call
 pub const MAX_BATCH_APPROVALS: u32 = 50;
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Timestamp-manipulation prevention constants
-//
-// Soroban's `env.ledger().timestamp()` returns the ledger close time, which is
-// set by validators and can drift or be slightly manipulated within the Stellar
-// consensus window (~5 s per ledger).  To prevent time-based attacks we enforce:
-//
-//   1. MIN_DEADLINE_DURATION  — deadline must be at least this many seconds
-//      *after* the current ledger timestamp.  A very short deadline (e.g. 1 s)
-//      could be gamed by a validator who nudges the close time forward.
-//
-//   2. MAX_DEADLINE_DURATION  — deadline must not be more than this many seconds
-//      in the future.  Prevents quests that effectively never expire and could
-//      lock escrow funds indefinitely.
-//
-//   3. MIN_EXPIRY_BUFFER      — when checking whether a quest has expired, we
-//      require the current time to exceed the deadline by at least this buffer.
-//      This prevents a validator from triggering expiry one ledger early by
-//      advancing the close time slightly.
-// ─────────────────────────────────────────────────────────────────────────────
+/// Maximum total number of quests allowed in the system (prevents global index bloat)
+pub const MAX_QUEST_IDS_TOTAL: u32 = 5000;
 
-/// Minimum number of seconds a deadline must be in the future at registration
-/// time (5 minutes).  Prevents single-ledger timestamp nudging from immediately
-/// expiring a newly created quest.
-pub const MIN_DEADLINE_DURATION: u64 = 300; // 5 minutes
-
-/// Maximum number of seconds a deadline may be in the future at registration
-/// time (2 years).  Prevents indefinite escrow lock-up.
-pub const MAX_DEADLINE_DURATION: u64 = 63_072_000; // 2 years (365 * 2 * 24 * 3600)
-
-/// Grace buffer (in seconds) added when checking expiry.  The current ledger
-/// timestamp must exceed `deadline + MIN_EXPIRY_BUFFER` before the contract
-/// treats a quest as expired.  This absorbs normal validator clock drift
-/// (~5 s per ledger) and prevents premature expiry.
-pub const MIN_EXPIRY_BUFFER: u64 = 60; // 1 minute
+/// Maximum number of iterations for query scans (prevents gas exhaustion)
+pub const MAX_SCAN_ITERATIONS: u32 = 100;
 
 //================================================================================
 // Address Validation
@@ -384,6 +354,14 @@ pub fn validate_batch_approval_size(length: u32) -> Result<(), Error> {
     }
     if length > MAX_BATCH_APPROVALS {
         return Err(Error::ArrayTooLong);
+    }
+    Ok(())
+}
+
+/// Validates that the total number of quests does not exceed the limit.
+pub fn validate_max_quests(current_count: u32) -> Result<(), Error> {
+    if current_count >= MAX_QUEST_IDS_TOTAL {
+        return Err(Error::ArrayTooLong); // Or a more specific error if available
     }
     Ok(())
 }
