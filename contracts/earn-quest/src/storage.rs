@@ -47,6 +47,8 @@ pub enum DataKey {
     CreatorStats(Address),
     /// Mutex flag set while a non-reentrant entry point is executing.
     ReentrancyGuard,
+    /// Dispute record keyed by (quest_id, initiator)
+    Dispute(Symbol, Address),
 }
 
 //================================================================================
@@ -886,4 +888,37 @@ pub fn set_creator_stats(env: &Env, creator: &Address, stats: &CreatorStats) {
     env.storage()
         .instance()
         .set(&DataKey::CreatorStats(creator.clone()), stats);
+}
+
+//================================================================================
+// Dispute Storage Functions
+//================================================================================
+
+/// Checks if a dispute exists for a specific quest and initiator.
+pub fn has_dispute(env: &Env, quest_id: &Symbol, initiator: &Address) -> bool {
+    env.storage()
+        .instance()
+        .has(&DataKey::Dispute(quest_id.clone(), initiator.clone()))
+}
+
+/// Retrieves a dispute by quest_id and initiator.
+pub fn get_dispute(env: &Env, quest_id: &Symbol, initiator: &Address) -> Result<crate::types::Dispute, Error> {
+    env.storage()
+        .instance()
+        .get(&DataKey::Dispute(quest_id.clone(), initiator.clone()))
+        .ok_or(Error::DisputeNotFound)
+}
+
+/// Stores or updates a dispute record.
+pub fn set_dispute(env: &Env, quest_id: &Symbol, initiator: &Address, dispute: &crate::types::Dispute) {
+    env.storage()
+        .instance()
+        .set(&DataKey::Dispute(quest_id.clone(), initiator.clone()), dispute);
+}
+
+/// Deletes a dispute record.
+pub fn delete_dispute(env: &Env, quest_id: &Symbol, initiator: &Address) {
+    env.storage()
+        .instance()
+        .remove(&DataKey::Dispute(quest_id.clone(), initiator.clone()));
 }

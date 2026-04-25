@@ -51,4 +51,11 @@ pub enum Error {
 
     // Reentrancy
     ReentrantCall = 80,
+
+    // Dispute Errors
+    DisputeNotFound = 81,
+    DisputeAlreadyExists = 82,
+    DisputeNotPending = 83,
+    DisputeNotAuthorized = 84,
+    DisputeAlreadyResolved = 85,
 }
