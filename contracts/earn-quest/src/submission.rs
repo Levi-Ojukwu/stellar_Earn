@@ -151,11 +151,8 @@ pub fn approve_submissions_batch(
 
     // Pre-validate all addresses to fail fast
     for i in 0u32..len {
-        let batch = submissions.get(i).unwrap();
-        for j in 0u32..batch.submissions.len() {
-            let submitter = batch.submissions.get(j).unwrap();
-            validation::validate_addresses_distinct(verifier, &submitter)?;
-        }
+        let s = submissions.get(i).ok_or(Error::IndexOutOfBounds)?;
+        validation::validate_addresses_distinct(verifier, &s.submitter)?;
     }
 
     // Cache quest and escrow data to avoid redundant reads
