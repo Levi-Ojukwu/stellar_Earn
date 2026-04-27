@@ -105,6 +105,9 @@ pub enum Error {
     // Arithmetic
     Ovfl = 110,
     Undfl = 111,
+    IndexOutOfBounds = 112,
+    CommitmentNotFound = 113,
+    InvalidCommitment = 114,
 }
 
 impl Error {
@@ -194,24 +197,4 @@ impl Error {
 
     pub const ArithmeticOverflow: Error = Error::Ovfl;
     pub const ArithmeticUnderflow: Error = Error::Undfl;
-    DisputeNotFound = 81,
-    DisputeAlreadyExists = 82,
-    DisputeNotPending = 83,
-    DisputeNotAuthorized = 84,
-    DisputeAlreadyResolved = 85,
-
-    // Oracle Errors
-    OracleInactive = 90,
-    NoValidOracleData = 91,
-    InvalidOracleConfiguration = 92,
-    OracleResponseMismatch = 93,
-    StaleOracleData = 94,
-    InvalidOracleData = 95,
-    InsufficientOracleConfidence = 96,
-    OracleAlreadyExists = 97,
-    OracleNotFound = 98,
-
-    // Commitment Errors (Front-running prevention)
-    CommitmentNotFound = 100,
-    InvalidCommitment = 101,
 }

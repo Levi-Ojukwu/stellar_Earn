@@ -13,17 +13,19 @@ mod reputation;
 mod security;
 pub mod storage;
 mod submission;
+pub mod token;
 pub mod types;
 pub mod validation;
 
+#[cfg(test)]
+mod test_token;
+
 use crate::errors::Error;
-use crate::types::{
-    AggregatedPrice, Badge, BatchApprovalInput, BatchQuestInput, CreatorStats, Dispute, EscrowInfo, OracleConfig, PlatformStats,
-    PriceData, PriceFeedRequest, Quest, QuestMetadata, QuestStatus, Role, Submission, UserBadges, UserCore, UserStats,
+pub use crate::types::{
+    AggregatedPrice, Badge, BatchApprovalInput, BatchQuestInput, CreatorStats, Dispute, DisputeStatus, EscrowInfo, OracleConfig, PlatformStats,
+    PriceData, PriceFeedRequest, Quest, QuestMetadata, QuestStatus, Role, Submission, SubmissionStatus, UserBadges, UserCore, UserStats, Commitment
 };
 use soroban_sdk::{contract, contractimpl, Address, BytesN, Env, String, Symbol, U256, Vec};
-use crate::types::{Badge, BatchApprovalInput, BatchQuestInput, CreatorStats, Dispute, EscrowInfo, PlatformStats, Quest, QuestMetadata, QuestStatus, UserStats, Submission, Commitment};
-use soroban_sdk::{contract, contractimpl, Address, BytesN, Env, String, Symbol, Vec};
 
 #[contract]
 pub struct EarnQuestContract;
@@ -663,6 +665,62 @@ impl EarnQuestContract {
         // Additional validation logic could be added here
         // For example, checking against historical prices, volatility limits, etc.
         
+        Ok(())
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // Token Interface (SEP-41)
+    // ─────────────────────────────────────────────────────────────────────────────
+
+    pub fn allowance(env: Env, from: Address, spender: Address) -> i128 {
+        token::allowance(env, from, spender)
+    }
+
+    pub fn approve(env: Env, from: Address, spender: Address, amount: i128, expiration_ledger: u32) {
+        token::approve(env, from, spender, amount, expiration_ledger)
+    }
+
+    pub fn balance(env: Env, id: Address) -> i128 {
+        token::balance(env, id)
+    }
+
+    pub fn transfer(env: Env, from: Address, to: Address, amount: i128) {
+        token::transfer(env, from, to, amount)
+    }
+
+    pub fn transfer_from(env: Env, spender: Address, from: Address, to: Address, amount: i128) {
+        token::transfer_from(env, spender, from, to, amount)
+    }
+
+    pub fn burn(env: Env, from: Address, amount: i128) {
+        token::burn(env, from, amount)
+    }
+
+    pub fn burn_from(env: Env, spender: Address, from: Address, amount: i128) {
+        token::burn_from(env, spender, from, amount)
+    }
+
+    pub fn decimals(env: Env) -> u32 {
+        token::decimals(env)
+    }
+
+    pub fn name(env: Env) -> String {
+        token::name(env)
+    }
+
+    pub fn symbol(env: Env) -> String {
+        token::symbol(env)
+    }
+
+    pub fn mint(env: Env, caller: Address, to: Address, amount: i128) -> Result<(), Error> {
+        admin::require_role(&env, &caller, Role::Admin)?;
+        token::mint(env, to, amount);
+        Ok(())
+    }
+
+    pub fn set_token_metadata(env: Env, caller: Address, name: String, symbol: String, decimals: u32) -> Result<(), Error> {
+        admin::require_role(&env, &caller, Role::Admin)?;
+        token::set_metadata(&env, name, symbol, decimals);
         Ok(())
     }
 }

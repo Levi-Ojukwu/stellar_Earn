@@ -77,7 +77,7 @@ pub fn reveal_submission(
 
     let calculated_hash = env.crypto().sha256(&data);
 
-    if calculated_hash != commitment.hash {
+    if BytesN::from(calculated_hash) != commitment.hash {
         return Err(Error::InvalidCommitment);
     }
 
@@ -248,8 +248,11 @@ pub fn approve_submissions_batch(
 
     // Pre-validate all addresses to fail fast
     for i in 0u32..len {
-        let s = submissions.get(i).ok_or(Error::IndexOutOfBounds)?;
-        validation::validate_addresses_distinct(verifier, &s.submitter)?;
+        let s = submissions.get(i).unwrap();
+        for j in 0u32..s.submissions.len() {
+            let submitter = s.submissions.get(j).unwrap();
+            validation::validate_addresses_distinct(verifier, &submitter)?;
+        }
     }
 
     // Cache quest and escrow data to avoid redundant reads

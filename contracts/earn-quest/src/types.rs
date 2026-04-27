@@ -94,19 +94,18 @@ pub struct Dispute {
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct UserCore {
-pub struct Commitment {
-    pub hash: BytesN<32>,
-    pub timestamp: u64,
-}
-
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct UserStats {
     pub xp: u64,
     /// Current user level (1–5)
     pub level: u32,
     /// Number of quests successfully completed
     pub quests_completed: u32,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Commitment {
+    pub hash: BytesN<32>,
+    pub timestamp: u64,
 }
 
 /// Separate storage entry for a user's badge collection.
