@@ -1,7 +1,7 @@
 use crate::errors::Error;
 use crate::events;
 use crate::storage;
-use crate::types::{BatchQuestInput, MetadataDescription, Quest, QuestMetadata, QuestStatus};
+use crate::types::{BatchQuestInput, MetadataDescription, Quest, QuestMetadata, QuestStatus, Role};
 use crate::validation;
 use soroban_sdk::{Address, Env, Symbol, Vec};
 
@@ -84,7 +84,7 @@ pub fn register_quests_batch(
     validation::validate_batch_quest_size(len)?;
 
     for i in 0u32..len {
-        let q = quests.get(i).ok_or(Error::IndexOutOfBounds)?;
+        let q = quests.get(i).unwrap();
         register_quest(
             env,
             &q.id,
@@ -150,7 +150,10 @@ pub fn update_quest_metadata(
     metadata: &QuestMetadata,
 ) -> Result<(), Error> {
     let quest = storage::get_quest(env, quest_id)?;
-    if &quest.creator != updater && !storage::is_admin(env, updater) {
+    if &quest.creator != updater
+        && !(storage::is_super_admin(env, updater)
+            || storage::has_role(env, updater, &Role::Admin))
+    {
         return Err(Error::Unauthorized);
     }
     validate_metadata(metadata)?;
