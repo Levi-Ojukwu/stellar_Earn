@@ -19,11 +19,9 @@ pub mod validation;
 use crate::errors::Error;
 use crate::types::{
     AggregatedPrice, Badge, BatchApprovalInput, BatchQuestInput, CreatorStats, Dispute, EscrowInfo, OracleConfig, PlatformStats,
-    PriceData, PriceFeedRequest, Quest, QuestMetadata, QuestStatus, Role, Submission, UserBadges, UserCore, UserStats,
+    PriceData, PriceFeedRequest, Quest, QuestMetadata, QuestStatus, Role, Submission, UserBadges, UserCore, UserStats, Commitment
 };
 use soroban_sdk::{contract, contractimpl, Address, BytesN, Env, String, Symbol, U256, Vec};
-use crate::types::{Badge, BatchApprovalInput, BatchQuestInput, CreatorStats, Dispute, EscrowInfo, PlatformStats, Quest, QuestMetadata, QuestStatus, UserStats, Submission, Commitment};
-use soroban_sdk::{contract, contractimpl, Address, BytesN, Env, String, Symbol, Vec};
 
 #[contract]
 pub struct EarnQuestContract;

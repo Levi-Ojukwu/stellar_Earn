@@ -131,8 +131,6 @@ pub struct Dispute {
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 /// A commitment for a submission to prevent front-running.
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Commitment {
     /// Hash of the submission proof + salt.
     pub hash: BytesN<32>,
@@ -160,10 +158,6 @@ pub struct UserBadges {
     pub badges: Vec<Badge>,
 }
 
-/// Backward-compatible alias: existing code that references `UserStats` still
-/// compiles.  The `badges` field has moved to `UserBadges`.
-pub type UserStats = UserCore;
-
 /// Achievement badges that can be granted to users.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -180,30 +174,13 @@ pub enum Badge {
     Legend,
 }
 
+/// Backward-compatible alias: existing code that references `UserStats` still
+/// compiles.  The `badges` field has moved to `UserBadges`.
+pub type UserStats = UserCore;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // EscrowInfo  →  EscrowBalances  +  EscrowMeta
 // ─────────────────────────────────────────────────────────────────────────────
-//
-// BEFORE (9 fields, always loaded):
-//   EscrowInfo {
-//     quest_id, depositor, token,
-//     total_deposited, total_paid_out, total_refunded,
-//     is_active, created_at, deposit_count
-//   }
-//
-// AFTER:
-//   EscrowBalances { total_deposited, total_paid_out, total_refunded,
-//                    is_active, deposit_count }   ← hot path (every payout/deposit)
-//   EscrowMeta     { depositor, token, created_at }  ← cold path (refund, display)
-//
-// Gas savings:
-//   - validate_sufficient() / record_payout() only load EscrowBalances (5 fields)
-//     instead of 9 fields including two Address values (~32 bytes each)
-//   - refund_remaining() loads EscrowMeta only when actually refunding
-//
-// Backward compat:
-//   `EscrowInfo` is kept as a **view struct** (not stored) assembled on demand
-//   by `get_escrow_info()` for the public query API.
 
 /// Hot-path escrow data: loaded on every deposit, payout, and balance check.
 #[contracttype]
@@ -234,7 +211,6 @@ pub struct EscrowMeta {
 }
 
 /// Full escrow view — assembled from EscrowBalances + EscrowMeta.
-/// NOT stored directly; returned by `get_escrow_info()` for the public API.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EscrowInfo {
@@ -259,21 +235,8 @@ pub struct EscrowInfo {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// QuestMetadata  →  QuestMetadataCore  +  QuestMetadataExtended
+// QuestMetadata
 // ─────────────────────────────────────────────────────────────────────────────
-//
-// BEFORE (5 fields, Vec<String> always loaded):
-//   QuestMetadata { title, description, requirements: Vec<String>,
-//                   category, tags: Vec<String> }
-//
-// AFTER:
-//   QuestMetadataCore     { title, description, category }  ← hot path (display)
-//   QuestMetadataExtended { requirements, tags }            ← cold path (validation)
-//
-// Gas savings:
-//   - Quest listing / title display only loads 3 scalar fields
-//   - Requirements/tags (up to 20 + 15 strings × up to 200 bytes each) are
-//     loaded only when a submitter reads the full quest detail
 
 /// Hot-path metadata: title, description, category — shown in quest listings.
 #[contracttype]
@@ -293,8 +256,6 @@ pub struct QuestMetadataExtended {
 }
 
 /// Full metadata view — assembled from Core + Extended.
-/// Returned by `get_quest_metadata()` for the public API.
-/// Also accepted by `register_quest_with_metadata()` for convenience.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct QuestMetadata {
@@ -334,27 +295,8 @@ pub enum Role {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PlatformStats  →  individual counters
+// Statistics
 // ─────────────────────────────────────────────────────────────────────────────
-//
-// BEFORE (5 fields, entire struct rewritten for every single counter increment):
-//   PlatformStats { total_quests_created, total_submissions,
-//                   total_rewards_distributed, total_active_users,
-//                   total_rewards_claimed }
-//
-// AFTER:
-//   Each counter stored under its own DataKey so only the touched counter
-//   is read + written per transaction.
-//
-// Gas savings:
-//   - register_quest() increments only `total_quests_created` (1 read + 1 write)
-//     instead of reading/writing all 5 counters (5× the I/O)
-//   - submit_proof() increments only `total_submissions`
-//   - claim_reward() increments only `total_rewards_claimed`
-//
-// Backward compat:
-//   `PlatformStats` struct is kept for the `get_platform_stats()` query API.
-//   It is assembled from individual counters on read.
 
 /// Platform-wide statistics.
 #[contracttype]
@@ -388,15 +330,19 @@ pub struct CreatorStats {
     pub reputation_score: u32,
 }
 
-/// Batch input for quest registration
-/// Batch input for registering multiple quests.
+// ─────────────────────────────────────────────────────────────────────────────
+// Batch Inputs
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Batch input for quest registration.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BatchQuestInput {
-    /// List of quest structures.
-    pub quests: Vec<Quest>,
-    /// Corresponding metadata for each quest.
-    pub metadata: Vec<QuestMetadata>,
+    pub id: Symbol,
+    pub reward_asset: Address,
+    pub reward_amount: i128,
+    pub verifier: Address,
+    pub deadline: u64,
 }
 
 /// Batch input for approving multiple submissions.
@@ -409,9 +355,9 @@ pub struct BatchApprovalInput {
     pub submissions: Vec<Address>,
 }
 
-//================================================================================
-// Oracle Types and Interface
-//================================================================================
+// ─────────────────────────────────────────────────────────────────────────────
+// Oracle Types
+// ─────────────────────────────────────────────────────────────────────────────
 
 /// Price data returned by an oracle.
 #[contracttype]
@@ -431,7 +377,6 @@ pub struct PriceData {
     pub confidence: u32,
 }
 
-/// Oracle provider types
 /// Types of oracle providers supported.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]

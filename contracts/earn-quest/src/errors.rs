@@ -188,11 +188,11 @@ pub enum Error {
     CommitmentNotFound = 120,
     /// Invalid commitment or salt.
     InvalidCommitment = 121,
+    /// Index out of bounds in a vector or array.
+    IndexOutOfBounds = 122,
 }
 
 impl Error {
-    // Aliases kept for backward compatibility if needed, 
-    // but preferred usage is the full name from the enum.
     pub const QstExists: Error = Error::QuestAlreadyExists;
     pub const QstNotFd: Error = Error::QuestNotFound;
     pub const BadRwAmt: Error = Error::InvalidRewardAmount;
@@ -265,4 +265,5 @@ impl Error {
     pub const OrLowCnf: Error = Error::LowOracleConfidence;
     pub const Ovfl: Error = Error::ArithmeticOverflow;
     pub const Undfl: Error = Error::ArithmeticUnderflow;
+    pub const IndexOut: Error = Error::IndexOutOfBounds;
 }
