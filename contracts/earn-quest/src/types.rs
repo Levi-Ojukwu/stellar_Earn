@@ -81,6 +81,7 @@ pub enum DisputeStatus {
     UnderReview,
     Resolved,
     Withdrawn,
+    Appealed,
 }
 
 #[contracttype]
@@ -95,19 +96,19 @@ pub struct Dispute {
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Commitment {
-    pub hash: BytesN<32>,
-    pub timestamp: u64,
-}
-
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct UserStats {
+pub struct UserCore {
     pub xp: u64,
     /// Current user level (1–5)
     pub level: u32,
     /// Number of quests successfully completed
     pub quests_completed: u32,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Commitment {
+    pub hash: BytesN<32>,
+    pub timestamp: u64,
 }
 
 /// Separate storage entry for a user's badge collection.
@@ -264,6 +265,17 @@ pub enum MetadataDescription {
     Hash(BytesN<32>),
 }
 
+#[contracttype]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum Role {
+    SuperAdmin = 0,
+    Admin = 1,
+    Pauser = 2,
+    OracleAdmin = 3,
+    StatsAdmin = 4,
+    BadgeAdmin = 5,
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // PlatformStats  →  individual counters
 // ─────────────────────────────────────────────────────────────────────────────
@@ -295,6 +307,33 @@ pub struct PlatformStats {
     pub total_rewards_distributed: u128,
     pub total_active_users: u64,
     pub total_rewards_claimed: u64,
+}
+
+/// Creator statistics for tracking quest performance
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CreatorStats {
+    pub quests_created: u32,
+    pub total_rewards_posted: i128,
+    pub total_submissions_received: u32,
+    pub total_claims_paid: u32,
+    pub reputation_score: u32,
+}
+
+/// Batch input for quest registration
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BatchQuestInput {
+    pub quests: Vec<Quest>,
+    pub metadata: Vec<QuestMetadata>,
+}
+
+/// Batch input for submission approval
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BatchApprovalInput {
+    pub quest_id: Symbol,
+    pub submissions: Vec<Address>, // submitter addresses to approve
 }
 
 //================================================================================

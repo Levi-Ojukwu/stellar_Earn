@@ -1,7 +1,7 @@
 use crate::errors::Error;
 use crate::events;
 use crate::storage;
-use crate::types::{BatchQuestInput, MetadataDescription, Quest, QuestMetadata, QuestStatus};
+use crate::types::{BatchQuestInput, MetadataDescription, Quest, QuestMetadata, QuestStatus, Role};
 use crate::validation;
 use soroban_sdk::{Address, Env, Symbol, Vec};
 
@@ -84,16 +84,19 @@ pub fn register_quests_batch(
     validation::validate_batch_quest_size(len)?;
 
     for i in 0u32..len {
-        let q = quests.get(i).ok_or(Error::IndexOutOfBounds)?;
-        register_quest(
-            env,
-            &q.id,
-            creator,
-            &q.reward_asset,
-            q.reward_amount,
-            &q.verifier,
-            q.deadline,
-        )?;
+        let batch = quests.get(i).unwrap();
+        for j in 0u32..batch.quests.len() {
+            let q = batch.quests.get(j).unwrap();
+            register_quest(
+                env,
+                &q.id,
+                creator,
+                &q.reward_asset,
+                q.reward_amount,
+                &q.verifier,
+                q.deadline,
+            )?;
+        }
     }
 
     Ok(())
@@ -150,7 +153,10 @@ pub fn update_quest_metadata(
     metadata: &QuestMetadata,
 ) -> Result<(), Error> {
     let quest = storage::get_quest(env, quest_id)?;
-    if &quest.creator != updater && !storage::is_admin(env, updater) {
+    if &quest.creator != updater
+        && !(storage::is_super_admin(env, updater)
+            || storage::has_role(env, updater, &Role::Admin))
+    {
         return Err(Error::Unauthorized);
     }
     validate_metadata(metadata)?;
@@ -164,13 +170,13 @@ fn validate_metadata(metadata: &QuestMetadata) -> Result<(), Error> {
 
     validation::validate_array_length(metadata.tags.len(), MAX_METADATA_TAGS)?;
     for i in 0..metadata.tags.len() {
-        let tag = metadata.tags.get(i).ok_or(Error::IndexOutOfBounds)?;
+        let tag = metadata.tags.get(i).unwrap();
         validate_string_len(&tag, MAX_METADATA_TAG_LEN)?;
     }
 
     validation::validate_array_length(metadata.requirements.len(), MAX_METADATA_REQUIREMENTS)?;
     for i in 0..metadata.requirements.len() {
-        let requirement = metadata.requirements.get(i).ok_or(Error::IndexOutOfBounds)?;
+        let requirement = metadata.requirements.get(i).unwrap();
         validate_string_len(
             &requirement,
             MAX_METADATA_REQUIREMENT_LEN,
