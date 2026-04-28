@@ -36,6 +36,9 @@ cargo test -- --nocapture
 # Using Make
 make test
 make test-verbose
+
+# Run cross-contract tests
+cargo test --test test_cross_contract
 ```
 
 Targeted slices for the recent contract work:
@@ -49,6 +52,9 @@ cargo test test_events
 
 # Dispute record workflow and emitted events
 cargo test test_dispute
+
+# Cross-contract interface tests
+cargo test test_cross_contract
 ```
 
 ### Snapshot Management
