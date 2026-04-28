@@ -13,12 +13,19 @@ mod reputation;
 mod security;
 pub mod storage;
 mod submission;
+pub mod token;
 pub mod types;
 pub mod validation;
 
+#[cfg(test)]
+mod test_token;
+
 use crate::errors::Error;
-use crate::types::{Badge, BatchApprovalInput, BatchQuestInput, CreatorStats, Dispute, EscrowInfo, PlatformStats, Quest, QuestMetadata, QuestStatus, UserStats, Submission, Commitment};
-use soroban_sdk::{contract, contractimpl, Address, BytesN, Env, String, Symbol, Vec};
+pub use crate::types::{
+    AggregatedPrice, Badge, BatchApprovalInput, BatchQuestInput, CreatorStats, Dispute, DisputeStatus, EscrowInfo, OracleConfig, PlatformStats,
+    PriceData, PriceFeedRequest, Quest, QuestMetadata, QuestStatus, Role, Submission, SubmissionStatus, UserBadges, UserCore, UserStats, Commitment
+};
+use soroban_sdk::{contract, contractimpl, Address, BytesN, Env, String, Symbol, U256, Vec};
 
 #[contract]
 pub struct EarnQuestContract;
@@ -32,11 +39,16 @@ impl EarnQuestContract {
         }
         storage::set_contract_admin(&env, &admin);
         storage::set_admin(&env, &admin);
+        storage::grant_role(&env, &admin, &Role::SuperAdmin);
+        storage::grant_role(&env, &admin, &Role::Pauser);
+        storage::grant_role(&env, &admin, &Role::OracleAdmin);
+        storage::grant_role(&env, &admin, &Role::StatsAdmin);
+        storage::grant_role(&env, &admin, &Role::BadgeAdmin);
         storage::mark_initialized(&env);
     }
 
     pub fn authorize_upgrade(env: Env, caller: Address) -> Result<(), Error> {
-        caller.require_auth();
+        admin::require_role(&env, &caller, Role::SuperAdmin)?;
         if !init::upgrade_authorize(&env, &caller) {
             return Err(Error::Unauthorized);
         }
@@ -63,6 +75,20 @@ impl EarnQuestContract {
     pub fn remove_admin(env: Env, caller: Address, admin_to_remove: Address) -> Result<(), Error> {
         security::require_not_paused(&env)?;
         admin::remove_admin(&env, &caller, &admin_to_remove)
+    }
+
+    pub fn grant_role(env: Env, caller: Address, address: Address, role: Role) -> Result<(), Error> {
+        security::require_not_paused(&env)?;
+        admin::grant_role(&env, &caller, &address, role)
+    }
+
+    pub fn revoke_role(env: Env, caller: Address, address: Address, role: Role) -> Result<(), Error> {
+        security::require_not_paused(&env)?;
+        admin::revoke_role(&env, &caller, &address, role)
+    }
+
+    pub fn has_role(env: Env, address: Address, role: Role) -> bool {
+        storage::has_role(&env, &address, &role)
     }
 
     pub fn is_admin(env: Env, address: Address) -> bool {
@@ -140,14 +166,14 @@ impl EarnQuestContract {
     /// Pause an individual quest (admin only).
     pub fn pause_quest(env: Env, caller: Address, quest_id: Symbol) -> Result<(), Error> {
         security::require_not_paused(&env)?;
-        admin::require_admin(&env, &caller)?;
+        admin::require_role(&env, &caller, Role::Admin)?;
         quest::pause_quest(&env, &quest_id, &caller)
     }
 
     /// Resume an individual quest (admin only).
     pub fn resume_quest(env: Env, caller: Address, quest_id: Symbol) -> Result<(), Error> {
         security::require_not_paused(&env)?;
-        admin::require_admin(&env, &caller)?;
+        admin::require_role(&env, &caller, Role::Admin)?;
         quest::resume_quest(&env, &quest_id, &caller)
     }
 
@@ -315,6 +341,16 @@ impl EarnQuestContract {
     ) -> Result<(), Error> {
         security::require_not_paused(&env)?;
         dispute::resolve_dispute(&env, quest_id, initiator, arbitrator)
+    }
+
+    pub fn appeal_dispute(
+        env: Env,
+        quest_id: Symbol,
+        initiator: Address,
+        new_arbitrator: Address,
+    ) -> Result<(), Error> {
+        security::require_not_paused(&env)?;
+        dispute::appeal_dispute(&env, quest_id, initiator, new_arbitrator)
     }
 
     /// Withdraw a pending dispute (only by initiator).
@@ -499,10 +535,7 @@ impl EarnQuestContract {
     }
 
     pub fn reset_platform_stats(env: Env, caller: Address) -> Result<(), Error> {
-        caller.require_auth();
-        if !storage::is_admin(&env, &caller) {
-            return Err(Error::Unauthorized);
-        }
+        admin::require_role(&env, &caller, Role::StatsAdmin)?;
         storage::set_platform_stats(
             &env,
             &PlatformStats {
@@ -527,7 +560,7 @@ impl EarnQuestContract {
         oracle_config: OracleConfig,
     ) -> Result<(), Error> {
         security::require_not_paused(&env)?;
-        admin::require_admin(&env, &caller)?;
+        admin::require_role(&env, &caller, Role::OracleAdmin)?;
         
         oracle::Oracle::validate_config(&oracle_config)?;
         storage::add_oracle_config(&env, &oracle_config)?;
@@ -542,7 +575,7 @@ impl EarnQuestContract {
         oracle_address: Address,
     ) -> Result<(), Error> {
         security::require_not_paused(&env)?;
-        admin::require_admin(&env, &caller)?;
+        admin::require_role(&env, &caller, Role::OracleAdmin)?;
         
         storage::remove_oracle_config(&env, &oracle_address)?;
         
@@ -556,7 +589,7 @@ impl EarnQuestContract {
         oracle_config: OracleConfig,
     ) -> Result<(), Error> {
         security::require_not_paused(&env)?;
-        admin::require_admin(&env, &caller)?;
+        admin::require_role(&env, &caller, Role::OracleAdmin)?;
         
         oracle::Oracle::validate_config(&oracle_config)?;
         storage::update_oracle_config(&env, &oracle_config)?;
@@ -620,19 +653,21 @@ impl EarnQuestContract {
             return Ok(amount);
         }
 
-        let price = Self::get_price(env, from_asset, to_asset, 300)?; // 5 minutes max age
+        let price = Self::get_price(env.clone(), from_asset, to_asset, 300)?; // 5 minutes max age
         
         // Convert amount using price (assuming 7 decimals)
-        let amount_u256 = U256::from_u128(amount as u128);
-        let converted_amount = (amount_u256 * price.weighted_price) / U256::from_u32(10_000_000); // Adjust for 7 decimals
+        let amount_u256 = U256::from_u128(&env, amount as u128);
+        let converted_amount = amount_u256
+            .mul(&price.weighted_price)
+            .div(&U256::from_u32(&env, 10_000_000)); // Adjust for 7 decimals
         
         // Convert back to i128 safely
-        let converted_value = converted_amount.to_u128() as i128;
+        let converted_value = converted_amount.to_u128().ok_or(Error::AmountTooLarge)? as i128;
         Ok(converted_value)
     }
 
     /// Validate reward amount against oracle price (anti-manipulation)
-    pub fn validate_reward_amount_with_oracle(
+    pub fn validate_reward_with_oracle(
         env: Env,
         reward_asset: Address,
         reward_amount: i128,
@@ -643,12 +678,68 @@ impl EarnQuestContract {
         
         // Check if price confidence is sufficient
         if price.confidence_score < 80 {
-            return Err(Error::InsufficientOracleConfidence);
+            return Err(Error::LowOracleConfidence);
         }
         
         // Additional validation logic could be added here
         // For example, checking against historical prices, volatility limits, etc.
         
+        Ok(())
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // Token Interface (SEP-41)
+    // ─────────────────────────────────────────────────────────────────────────────
+
+    pub fn allowance(env: Env, from: Address, spender: Address) -> i128 {
+        token::allowance(env, from, spender)
+    }
+
+    pub fn approve(env: Env, from: Address, spender: Address, amount: i128, expiration_ledger: u32) {
+        token::approve(env, from, spender, amount, expiration_ledger)
+    }
+
+    pub fn balance(env: Env, id: Address) -> i128 {
+        token::balance(env, id)
+    }
+
+    pub fn transfer(env: Env, from: Address, to: Address, amount: i128) {
+        token::transfer(env, from, to, amount)
+    }
+
+    pub fn transfer_from(env: Env, spender: Address, from: Address, to: Address, amount: i128) {
+        token::transfer_from(env, spender, from, to, amount)
+    }
+
+    pub fn burn(env: Env, from: Address, amount: i128) {
+        token::burn(env, from, amount)
+    }
+
+    pub fn burn_from(env: Env, spender: Address, from: Address, amount: i128) {
+        token::burn_from(env, spender, from, amount)
+    }
+
+    pub fn decimals(env: Env) -> u32 {
+        token::decimals(env)
+    }
+
+    pub fn name(env: Env) -> String {
+        token::name(env)
+    }
+
+    pub fn symbol(env: Env) -> String {
+        token::symbol(env)
+    }
+
+    pub fn mint(env: Env, caller: Address, to: Address, amount: i128) -> Result<(), Error> {
+        admin::require_role(&env, &caller, Role::Admin)?;
+        token::mint(env, to, amount);
+        Ok(())
+    }
+
+    pub fn set_token_metadata(env: Env, caller: Address, name: String, symbol: String, decimals: u32) -> Result<(), Error> {
+        admin::require_role(&env, &caller, Role::Admin)?;
+        token::set_metadata(&env, name, symbol, decimals);
         Ok(())
     }
 }

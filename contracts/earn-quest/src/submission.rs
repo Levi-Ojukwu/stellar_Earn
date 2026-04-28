@@ -77,7 +77,7 @@ pub fn reveal_submission(
 
     let calculated_hash = env.crypto().sha256(&data);
 
-    if calculated_hash != commitment.hash {
+    if BytesN::from(calculated_hash) != commitment.hash {
         return Err(Error::InvalidCommitment);
     }
 
@@ -233,15 +233,6 @@ pub fn validate_claim(env: &Env, quest_id: &Symbol, submitter: &Address) -> Resu
     validate_claim_data(&quest, &submission)
 }
 
-    // Validate status transition: Approved -> Paid
-    validation::validate_submission_status_transition(&submission.status, &SubmissionStatus::Paid)?;
-
-    // Validate quest claims limit
-    validation::validate_quest_claims_limit(quest.total_claims)?;
-
-    Ok(())
-}
-
 //================================================================================
 // Batch approval (gas-optimized)
 //================================================================================
@@ -275,8 +266,11 @@ pub fn approve_submissions_batch(
 
     // Pre-validate all addresses to fail fast
     for i in 0u32..len {
-        let s = submissions.get(i).ok_or(Error::IndexOutOfBounds)?;
-        validation::validate_addresses_distinct(verifier, &s.submitter)?;
+        let s = submissions.get(i).unwrap();
+        for j in 0u32..s.submissions.len() {
+            let submitter = s.submissions.get(j).unwrap();
+            validation::validate_addresses_distinct(verifier, &submitter)?;
+        }
     }
 
     // Cache quest and escrow data to avoid redundant reads
@@ -285,18 +279,19 @@ pub fn approve_submissions_batch(
     let mut cached_escrow: Option<crate::types::EscrowInfo> = None;
 
     for i in 0u32..len {
-        let s = submissions.get(i).unwrap();
+        let batch = submissions.get(i).unwrap();
+        let quest_id = &batch.quest_id;
 
         // Reuse quest data if same quest as previous iteration
-        let quest = if cached_quest_id.as_ref() == Some(&s.quest_id) {
+        let quest = if cached_quest_id.as_ref() == Some(quest_id) {
             cached_quest_data.as_ref().unwrap()
         } else {
-            let quest_data = storage::get_quest(env, &s.quest_id)?;
-            cached_quest_id = Some(s.quest_id.clone());
+            let quest_data = storage::get_quest(env, quest_id)?;
+            cached_quest_id = Some(quest_id.clone());
             cached_quest_data = Some(quest_data);
             // Also cache escrow if it exists for this quest
-            if storage::has_escrow(env, &s.quest_id) {
-                cached_escrow = Some(storage::get_escrow(env, &s.quest_id)?);
+            if storage::has_escrow(env, quest_id) {
+                cached_escrow = Some(storage::get_escrow(env, quest_id)?);
             } else {
                 cached_escrow = None;
             }
@@ -307,32 +302,36 @@ pub fn approve_submissions_batch(
             return Err(Error::Unauthorized);
         }
 
-        // Single read of submission; will be updated directly
-        let mut submission = storage::get_submission(env, &s.quest_id, &s.submitter)?;
+        for j in 0u32..batch.submissions.len() {
+            let submitter = batch.submissions.get(j).unwrap();
 
-        // Validate status transition: Pending -> Approved
-        validation::validate_submission_status_transition(
-            &submission.status,
-            &SubmissionStatus::Approved,
-        )?;
+            // Single read of submission; will be updated directly
+            let mut submission = storage::get_submission(env, quest_id, &submitter)?;
 
-        // Escrow check — verify there are enough funds using cached data
-        if let Some(ref escrow) = cached_escrow {
-            if !escrow.is_active {
-                return Err(Error::EscrowInactive);
+            // Validate status transition: Pending -> Approved
+            validation::validate_submission_status_transition(
+                &submission.status,
+                &SubmissionStatus::Approved,
+            )?;
+
+            // Escrow check — verify there are enough funds using cached data
+            if let Some(ref escrow) = cached_escrow {
+                if !escrow.is_active {
+                    return Err(Error::EscrowInactive);
+                }
+                let available = escrow.total_deposited - escrow.total_paid_out - escrow.total_refunded;
+                if available < quest.reward_amount {
+                    return Err(Error::InsufficientEscrow);
+                }
             }
-            let available = escrow.total_deposited - escrow.total_paid_out - escrow.total_refunded;
-            if available < quest.reward_amount {
-                return Err(Error::InsufficientEscrow);
-            }
+
+            // Direct update to avoid redundant read
+            submission.status = SubmissionStatus::Approved;
+            storage::set_submission(env, quest_id, &submitter, &submission);
+
+            // Emit event
+            events::submission_approved(env, quest_id.clone(), submitter.clone(), verifier.clone());
         }
-
-        // Direct update to avoid redundant read
-        submission.status = SubmissionStatus::Approved;
-        storage::set_submission(env, &s.quest_id, &s.submitter, &submission);
-
-        // Emit event
-        events::submission_approved(env, s.quest_id.clone(), s.submitter.clone(), verifier.clone());
     }
 
     Ok(())

@@ -3,6 +3,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { LevelBadge } from '@/components/reputation/LevelBadge';
 
+/**
+ * Props for the level-up celebration modal.
+ */
 interface LevelUpModalProps {
   isOpen: boolean;
   newLevel: number;
@@ -10,8 +13,23 @@ interface LevelUpModalProps {
 }
 
 // Confetti particle component
-function ConfettiParticle({ delay, duration, left }: { delay: number; duration: number; left: string }) {
-  const colors = ['#089ec3', '#0ab8d4', '#fbbf24', '#f59e0b', '#ef4444', '#8b5cf6'];
+function ConfettiParticle({
+  delay,
+  duration,
+  left,
+}: {
+  delay: number;
+  duration: number;
+  left: string;
+}) {
+  const colors = [
+    '#089ec3',
+    '#0ab8d4',
+    '#fbbf24',
+    '#f59e0b',
+    '#ef4444',
+    '#8b5cf6',
+  ];
   const color = colors[Math.floor(Math.random() * colors.length)];
 
   return (
@@ -26,6 +44,9 @@ function ConfettiParticle({ delay, duration, left }: { delay: number; duration: 
   );
 }
 
+/**
+ * Shows a celebratory level-up modal with confetti animation.
+ */
 export function LevelUpModal({ isOpen, newLevel, onClose }: LevelUpModalProps) {
   const modalRef = useRef<HTMLDivElement>(null);
   const previousActiveElement = useRef<HTMLElement | null>(null);
@@ -41,7 +62,8 @@ export function LevelUpModal({ isOpen, newLevel, onClose }: LevelUpModalProps) {
   useEffect(() => {
     if (isOpen) {
       // Store the previously focused element
-      previousActiveElement.current = document.activeElement as HTMLElement | null;
+      previousActiveElement.current =
+        document.activeElement as HTMLElement | null;
 
       // Focus the modal
       modalRef.current?.focus();

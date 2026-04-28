@@ -2,6 +2,7 @@ use crate::errors::Error;
 use crate::storage;
 use crate::validation;
 use crate::events;
+use crate::admin;
 use soroban_sdk::{Address, Env, Symbol};
 
 use super::types::{Dispute, DisputeStatus};
@@ -51,6 +52,7 @@ pub fn open_dispute(
 }
 
 /// Resolve an open dispute. Only the assigned arbitrator can call this.
+/// If the dispute is in `Appealed` status, only an admin can resolve it.
 pub fn resolve_dispute(
     env: &Env,
     quest_id: Symbol,
@@ -63,17 +65,19 @@ pub fn resolve_dispute(
     // Fetch dispute
     let mut dispute = storage::get_dispute(env, &quest_id, &initiator)?;
 
-    // Validate status: must be Pending or UnderReview
+    // Validate status
     match dispute.status {
         DisputeStatus::Pending | DisputeStatus::UnderReview => {
-            // OK
+            // Verify caller is the assigned arbitrator
+            if dispute.arbitrator != arbitrator {
+                return Err(Error::DisputeNotAuthorized);
+            }
+        }
+        DisputeStatus::Appealed => {
+            // Verify caller is an admin for appeals
+            admin::require_admin(env, &arbitrator)?;
         }
         _ => return Err(Error::DisputeNotPending),
-    }
-
-    // Verify caller is the assigned arbitrator
-    if dispute.arbitrator != arbitrator {
-        return Err(Error::DisputeNotAuthorized);
     }
 
     // Update status to Resolved
@@ -82,6 +86,36 @@ pub fn resolve_dispute(
 
     // Emit event
     events::dispute_resolved(env, quest_id, initiator, arbitrator);
+
+    Ok(())
+}
+
+/// Appeal a resolved dispute. Only the initiator can call this.
+/// The dispute must be in `Resolved` status.
+pub fn appeal_dispute(
+    env: &Env,
+    quest_id: Symbol,
+    initiator: Address,
+    new_arbitrator: Address,
+) -> Result<(), Error> {
+    // Auth: initiator must sign
+    initiator.require_auth();
+
+    // Fetch dispute
+    let mut dispute = storage::get_dispute(env, &quest_id, &initiator)?;
+
+    // Must be Resolved to appeal
+    if dispute.status != DisputeStatus::Resolved {
+        return Err(Error::DisputeNotResolved);
+    }
+
+    // Update status to Appealed
+    dispute.status = DisputeStatus::Appealed;
+    dispute.arbitrator = new_arbitrator.clone();
+    storage::set_dispute(env, &quest_id, &initiator, &dispute);
+
+    // Emit event
+    events::dispute_appealed(env, quest_id, initiator, new_arbitrator);
 
     Ok(())
 }
