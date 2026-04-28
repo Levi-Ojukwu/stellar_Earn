@@ -1,7 +1,7 @@
 use crate::errors::Error;
 use crate::events;
 use crate::storage;
-use crate::types::{BatchApprovalInput, Commitment, EscrowInfo, Submission, SubmissionStatus};
+use crate::types::{BatchApprovalInput, Commitment, Submission, SubmissionStatus};
 use crate::validation;
 use soroban_sdk::{xdr::ToXdr, Address, Bytes, BytesN, Env, Symbol, Vec};
 

@@ -5,6 +5,11 @@ use soroban_sdk::contracterror;
 #[repr(u32)]
 pub enum Error {
     // Quest Errors
+    QuestAlreadyExists = 1,
+    QuestNotFound = 2,
+    InvalidRewardAmount = 3,
+    QuestStillActive = 4,
+    InvalidClaimAmount = 5,
     QstExists = 1,
     QstNotFd = 2,
     BadRwAmt = 3,
