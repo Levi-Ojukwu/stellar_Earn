@@ -2,7 +2,7 @@ use crate::admin;
 use crate::errors::Error;
 use crate::events;
 use crate::storage;
-use crate::types::{Badge, UserBadges, UserCore};
+use crate::types::{Badge, UserCore};
 use soroban_sdk::{Address, Env};
 
 const LEVEL_2_XP: u64 = 300;

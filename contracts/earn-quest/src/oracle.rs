@@ -59,7 +59,7 @@ impl Oracle {
     /// Get price from Stellar Asset oracle
     fn get_stellar_asset_price(
         env: &Env,
-        oracle_config: &OracleConfig,
+        _oracle_config: &OracleConfig,
         request: &PriceFeedRequest,
     ) -> Result<PriceData, Error> {
         // Implementation for Stellar Asset oracle
@@ -80,7 +80,7 @@ impl Oracle {
     /// Get price from Stellar Oracle contract
     fn get_stellar_oracle_price(
         env: &Env,
-        oracle_config: &OracleConfig,
+        _oracle_config: &OracleConfig,
         request: &PriceFeedRequest,
     ) -> Result<PriceData, Error> {
         // Implementation for Stellar Oracle contract
@@ -101,7 +101,7 @@ impl Oracle {
     /// Get price from custom oracle implementation
     fn get_custom_oracle_price(
         env: &Env,
-        oracle_config: &OracleConfig,
+        _oracle_config: &OracleConfig,
         request: &PriceFeedRequest,
     ) -> Result<PriceData, Error> {
         // Implementation for custom oracle
@@ -219,7 +219,7 @@ impl Oracle {
         env: &Env,
         oracle_config: &OracleConfig,
         request: &PriceFeedRequest,
-        timestamp: u64,
+        _timestamp: u64,
     ) -> Result<PriceData, Error> {
         // This would implement historical price queries
         // For now, return current price as fallback
