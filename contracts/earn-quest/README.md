@@ -174,6 +174,16 @@ Dispute handling is intentionally hybrid:
 
 The full operator flow is documented in [docs/DISPUTE_RESOLUTION.md](docs/DISPUTE_RESOLUTION.md).
 
+## Appeal Process
+
+To ensure fairness, the contract supports an escalation path for resolved disputes:
+
+- **Escalation**: Initiators can appeal a resolved dispute if they disagree with the outcome.
+- **Senior Review**: Appeals are escalated to a senior reviewer or admin for a final verdict.
+- **On-Chain Tracking**: The appeal status and final resolution are recorded on the ledger.
+
+Detailed documentation is available in [docs/APPEAL_PROCESS.md](docs/APPEAL_PROCESS.md).
+
 ## Build Output
 
 **WASM Binary**: `target/wasm32-unknown-unknown/release/earn_quest.wasm` (21KB)

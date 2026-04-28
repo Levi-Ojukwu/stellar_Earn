@@ -79,6 +79,7 @@ pub enum DisputeStatus {
     UnderReview,
     Resolved,
     Withdrawn,
+    Appealed,
 }
 
 #[contracttype]

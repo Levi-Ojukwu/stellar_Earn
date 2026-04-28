@@ -334,6 +334,16 @@ impl EarnQuestContract {
         dispute::resolve_dispute(&env, quest_id, initiator, arbitrator)
     }
 
+    pub fn appeal_dispute(
+        env: Env,
+        quest_id: Symbol,
+        initiator: Address,
+        new_arbitrator: Address,
+    ) -> Result<(), Error> {
+        security::require_not_paused(&env)?;
+        dispute::appeal_dispute(&env, quest_id, initiator, new_arbitrator)
+    }
+
     /// Withdraw a pending dispute (only by initiator).
     pub fn withdraw_dispute(
         env: Env,

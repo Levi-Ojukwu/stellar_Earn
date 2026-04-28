@@ -81,17 +81,19 @@ pub enum Error {
     DspNPend = 83,
     DspNoAut = 84,
     DspResol = 85,
+    DspNAppld = 86,
+    DspAppld = 87,
 
     // Additional validation / escrow
-    BadDline = 86,
-    QstCncl = 87,
-    NoEscBal = 88,
-    BadEscAm = 89,
+    BadDline = 88,
+    QstCncl = 89,
+    NoEscBal = 90,
+    BadEscAm = 91,
 
     // Initialization / Upgrade
-    InitDup = 90,
-    NoInit = 91,
-    BadVer = 92,
+    InitDup = 92,
+    NoInit = 93,
+    BadVer = 94,
 
     // Oracle
     OrInact = 100,
@@ -177,6 +179,9 @@ impl Error {
     pub const DisputeNotPending: Error = Error::DspNPend;
     pub const DisputeNotAuthorized: Error = Error::DspNoAut;
     pub const DisputeAlreadyResolved: Error = Error::DspResol;
+    pub const DisputeNotResolved: Error = Error::DspResol;
+    pub const DisputeNotAppealed: Error = Error::DspNAppld;
+    pub const DisputeAlreadyAppealed: Error = Error::DspAppld;
 
     pub const InvalidDeadline: Error = Error::BadDline;
     pub const QuestCancelled: Error = Error::QstCncl;
