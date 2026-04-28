@@ -182,6 +182,22 @@ pub fn approve_submission(
 
 /// Core claim validation that operates on already-fetched data.
 /// This avoids repeated storage reads when the data is already available.
+/// Core claim validation that operates on already-fetched data.
+///
+/// This function performs the necessary checks to ensure a reward claim is valid.
+/// It is designed to be gas-efficient by taking already-loaded data as arguments.
+///
+/// # Arguments
+///
+/// * `quest` - The quest data.
+/// * `submission` - The submission data.
+///
+/// # Returns
+///
+/// * `Ok(())` if the claim is valid.
+/// * `Err(Error::AlreadyClaimed)` if the submission has already been paid.
+/// * `Err(Error::QuestClaimsLimitReached)` if the quest's maximum claims have been reached.
+/// * `Err(Error)` if the status transition is invalid.
 pub fn validate_claim_data(
     quest: &crate::types::Quest,
     submission: &crate::types::Submission,
@@ -209,6 +225,20 @@ pub fn validate_claim_data(
 /// - Submission is not already paid (AlreadyClaimed)
 /// - Submission status transition (Approved -> Paid) is valid
 /// - Quest claims have not exceeded the limit
+/// Validates a reward claim for a specific quest and submitter.
+///
+/// This function loads the necessary data from storage and then calls `validate_claim_data`.
+///
+/// # Arguments
+///
+/// * `env` - The contract environment.
+/// * `quest_id` - The symbol of the quest.
+/// * `submitter` - The address of the user who submitted.
+///
+/// # Returns
+///
+/// * `Ok(())` if the claim is valid.
+/// * `Err(Error)` if the quest or submission is not found, or if validation fails.
 pub fn validate_claim(env: &Env, quest_id: &Symbol, submitter: &Address) -> Result<(), Error> {
     let quest = storage::get_quest(env, quest_id)?;
     let submission = storage::get_submission(env, quest_id, submitter)?;
@@ -248,8 +278,13 @@ pub fn approve_submissions_batch(
 
     // Pre-validate all addresses to fail fast
     for i in 0u32..len {
+
+        let s = submissions.get(i).ok_or(Error::IndexOutOfBounds)?;
+        for j in 0..s.submissions.len() {
+
         let s = submissions.get(i).unwrap();
         for j in 0u32..s.submissions.len() {
+
             let submitter = s.submissions.get(j).unwrap();
             validation::validate_addresses_distinct(verifier, &submitter)?;
         }
