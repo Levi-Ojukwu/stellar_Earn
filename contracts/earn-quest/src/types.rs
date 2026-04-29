@@ -1,4 +1,4 @@
-use soroban_sdk::{contracttype, Address, BytesN, String, Symbol, Vec, U256};
+use soroban_sdk::{contracttype, symbol_short, Address, BytesN, Env, String, Symbol, Vec, U256};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Quest
@@ -121,14 +121,61 @@ pub struct UserBadges {
 /// compiles.  The `badges` field has moved to `UserBadges`.
 pub type UserStats = UserCore;
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Badge — configurable registry
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Badges are no longer a fixed enum.  A `Badge` is now a typed wrapper around
+// a `Symbol` id that must exist in the on-chain `BadgeType` registry before it
+// can be granted.  Admins (with the `BadgeAdmin` role) register, update, and
+// remove `BadgeType` entries at runtime.
+//
+// The five legacy badges (Rookie, Explorer, Veteran, Master, Legend) are
+// auto-seeded during `initialize` so existing flows continue to work.
+
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum Badge {
-    Rookie,
-    Explorer,
-    Veteran,
-    Master,
-    Legend,
+pub struct Badge {
+    pub id: Symbol,
+}
+
+impl Badge {
+    pub fn new(id: Symbol) -> Self {
+        Self { id }
+    }
+
+    pub fn rookie(_env: &Env) -> Self {
+        Self { id: symbol_short!("rookie") }
+    }
+    pub fn explorer(env: &Env) -> Self {
+        Self { id: Symbol::new(env, "explorer") }
+    }
+    pub fn veteran(_env: &Env) -> Self {
+        Self { id: symbol_short!("veteran") }
+    }
+    pub fn master(_env: &Env) -> Self {
+        Self { id: symbol_short!("master") }
+    }
+    pub fn legend(_env: &Env) -> Self {
+        Self { id: symbol_short!("legend") }
+    }
+}
+
+/// Admin-configured badge definition stored in the on-chain registry.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BadgeType {
+    /// Stable identifier — also the storage key suffix.
+    pub id: Symbol,
+    /// Human-readable name (shown in clients).
+    pub name: String,
+    /// Optional description / criteria.
+    pub description: String,
+    /// Optional XP threshold (0 = no XP requirement; admin-only manual grant).
+    pub xp_threshold: u64,
+    /// Whether the badge can currently be granted.  Disable instead of delete
+    /// to preserve historical grants.
+    pub is_active: bool,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

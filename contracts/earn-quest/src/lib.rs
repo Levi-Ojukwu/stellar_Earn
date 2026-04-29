@@ -22,8 +22,10 @@ mod test_token;
 
 use crate::errors::Error;
 pub use crate::types::{
-    AggregatedPrice, Badge, BatchApprovalInput, BatchQuestInput, CreatorStats, Dispute, DisputeStatus, EscrowInfo, OracleConfig, PlatformStats,
-    PriceData, PriceFeedRequest, Quest, QuestMetadata, QuestStatus, Role, Submission, SubmissionStatus, UserBadges, UserCore, UserStats, Commitment
+    AggregatedPrice, Badge, BadgeType, BatchApprovalInput, BatchQuestInput, CreatorStats, Dispute,
+    DisputeStatus, EscrowInfo, OracleConfig, PlatformStats, PriceData, PriceFeedRequest, Quest,
+    QuestMetadata, QuestStatus, Role, Submission, SubmissionStatus, UserBadges, UserCore,
+    UserStats, Commitment,
 };
 use soroban_sdk::{contract, contractimpl, Address, BytesN, Env, String, Symbol, U256, Vec};
 
@@ -44,6 +46,7 @@ impl EarnQuestContract {
         storage::grant_role(&env, &admin, &Role::OracleAdmin);
         storage::grant_role(&env, &admin, &Role::StatsAdmin);
         storage::grant_role(&env, &admin, &Role::BadgeAdmin);
+        reputation::seed_default_badge_types(&env);
         storage::mark_initialized(&env);
     }
 
@@ -302,6 +305,45 @@ impl EarnQuestContract {
         let user_badges = storage::get_user_badges(&env, &user);
         validation::validate_badge_count(user_badges.badges.len())?;
         reputation::grant_badge(&env, &admin, &user, badge)
+    }
+
+    // ── Badge Type Registry ──
+
+    /// Register a new badge type.  Admin (Admin / BadgeAdmin / SuperAdmin) only.
+    pub fn register_badge_type(
+        env: Env,
+        caller: Address,
+        badge_type: BadgeType,
+    ) -> Result<(), Error> {
+        security::require_not_paused(&env)?;
+        reputation::register_badge_type(&env, &caller, badge_type)
+    }
+
+    /// Update an existing badge type definition.  Admin only.
+    pub fn update_badge_type(
+        env: Env,
+        caller: Address,
+        badge_type: BadgeType,
+    ) -> Result<(), Error> {
+        security::require_not_paused(&env)?;
+        reputation::update_badge_type(&env, &caller, badge_type)
+    }
+
+    /// Remove a badge type from the registry.  Existing user grants are not
+    /// retroactively revoked.  Admin only.
+    pub fn remove_badge_type(env: Env, caller: Address, id: Symbol) -> Result<(), Error> {
+        security::require_not_paused(&env)?;
+        reputation::remove_badge_type(&env, &caller, id)
+    }
+
+    /// Fetch a single badge type by id.
+    pub fn get_badge_type(env: Env, id: Symbol) -> Result<BadgeType, Error> {
+        reputation::get_badge_type(&env, &id)
+    }
+
+    /// List all registered badge types.
+    pub fn list_badge_types(env: Env) -> Vec<BadgeType> {
+        reputation::list_badge_types(&env)
     }
 
     // ── Dispute Resolution ──

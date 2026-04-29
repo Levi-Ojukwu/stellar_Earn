@@ -37,6 +37,9 @@ pub enum Error {
     StatsNfd = 40,
     BadgeDup = 41,
     UserNf = 42,
+    BadgeTypeNf = 43,
+    BadgeTypeDup = 44,
+    BadgeTypeInact = 45,
 
     // Security / Emergency
     Paused = 50,
@@ -142,6 +145,9 @@ impl Error {
     pub const UserStatsNotFound: Error = Error::StatsNfd;
     pub const BadgeAlreadyGranted: Error = Error::BadgeDup;
     pub const UserNotFound: Error = Error::UserNf;
+    pub const BadgeTypeNotFound: Error = Error::BadgeTypeNf;
+    pub const BadgeTypeAlreadyExists: Error = Error::BadgeTypeDup;
+    pub const BadgeTypeInactive: Error = Error::BadgeTypeInact;
 
     pub const TimelockNotExpired: Error = Error::TlNotExp;
     pub const AlreadyApproved: Error = Error::Apprvd;
